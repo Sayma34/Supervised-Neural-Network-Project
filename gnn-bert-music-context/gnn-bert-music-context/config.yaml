@@ -1,0 +1,61 @@
+# Configuration for GNN-Based BERT Music Context Understanding
+
+project:
+  name: "gnn-bert-music-context"
+  seed: 42
+  device: "cuda" # Automatically falls back to cpu if cuda is unavailable
+
+paths:
+  raw_data_dir: "data/raw"
+  fma_dir: "data/raw/fma_small"
+  fma_metadata_dir: "data/raw/fma_metadata"
+  mtat_dir: "data/raw/magnatagatune"
+  processed_dir: "data/processed"
+  splits_dir: "data/splits"
+  results_dir: "results"
+  plots_dir: "results/plots"
+  checkpoints_dir: "results/checkpoints"
+
+audio:
+  sample_rate: 22050
+  duration: 30 # seconds
+  n_mels: 128
+  n_chroma: 12
+  n_mfcc: 20
+  hop_length: 512
+  n_fft: 2048
+  segment_duration: 3.0 # seconds per graph node
+  similarity_threshold: 0.70 # cosine similarity threshold for graph edges
+
+text:
+  model_name: "distilbert-base-uncased"
+  max_token_length: 128
+  num_tags: 50 # top 50 MagnaTagATune tags
+
+gnn:
+  type: "GraphSAGE" # "GraphSAGE" or "GAT"
+  hidden_dim: 128
+  output_dim: 64
+  num_layers: 2
+  dropout: 0.2
+  readout: "mean"
+
+fusion:
+  d_model: 128
+  n_heads: 4
+  dropout: 0.1
+  fusion_type: "cross_attention" # "cross_attention" or "concat"
+
+contrastive:
+  projection_dim: 64
+  temperature: 0.07
+
+training:
+  batch_size: 32
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-4
+  epochs_bert: 5
+  epochs_gnn: 15
+  epochs_fusion: 15
+  epochs_contrastive: 15
+  patience: 4

@@ -1,0 +1,22 @@
+{
+  "dataset": "FMA-small / MagnaTagATune Preprocessed Segment Graphs",
+  "num_samples_target": 20,
+  "description": "Preprocessed music structure graphs for assignment deliverable #2. Run scripts/generate_sample_graphs.py or Section 3 of notebooks/colab_master_pipeline.ipynb to populate binary .pt files.",
+  "feature_dimensions": {
+    "chroma_cens": 12,
+    "mfcc_mean": 20,
+    "spectral_contrast": 7,
+    "total_node_dim": 39
+  },
+  "graph_topology": {
+    "nodes": "3.0-second temporal windows (approx. 10 nodes per 30s track)",
+    "temporal_edges": "Linear bidirectional spine between adjacent segments (i, i+1)",
+    "acoustic_similarity_edges": "Cosine similarity threshold tau >= 0.65 connecting repeating themes"
+  },
+  "sample_track_ids": [
+    "track_0001", "track_0002", "track_0003", "track_0004", "track_0005",
+    "track_0006", "track_0007", "track_0008", "track_0009", "track_0010",
+    "track_0011", "track_0012", "track_0013", "track_0014", "track_0015",
+    "track_0016", "track_0017", "track_0018", "track_0019", "track_0020"
+  ]
+}

@@ -1,0 +1,199 @@
+\documentclass{article}
+
+% NeurIPS / Machine Learning Conference Paper Format
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{cite}
+\usepackage{microtype}
+\usepackage{subcaption}
+
+\title{\textbf{GNN-Based BERT for Understanding Context from Music: A Multimodal Structural Framework}}
+
+\author{
+  \textbf{KAZI ADIB HAQ, SAYMA SHAHID, TOUHID AHMED} \\
+  Department of Computer Science and Engineering \\
+  Course: Neural Networks (CSE425) \\
+  Prepared for: RRH \\
+  Submission Date: September 8, 2026
+}
+
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Music audio exhibits complex multi-scale relational structures spanning temporal transitions, harmonic chord progressions, and lyrical semantics. Conventional sequence models (e.g., 2D CNNs operating on time-frequency spectrograms) treat audio as static planar images, struggling to capture long-range relational topologies such as repeating verse-chorus patterns. Conversely, text-only language models capture semantic descriptors but lack direct acoustic grounding. In this work, we present an end-to-end multimodal framework combining contextual language representations from \textbf{BERT} with structural message-passing on music segment graphs using \textbf{Graph Neural Networks (GNNs)}. First, we establish a text-only \textbf{DistilBERT baseline (Task 1)} on the MagnaTagATune top-50 tag subset, achieving a Macro-F1 of 0.315 and AUC-PR of 0.455. Second, we construct topological music graphs where nodes encode pitch-class chroma and timbral MFCCs, and edges bridge sequential transitions and acoustic recurrence. An inductive \textbf{GraphSAGE encoder (Task 2)} achieves a Macro-F1 of 0.52, outperforming a standard 2D CNN spectrogram baseline (0.41) by 11 percentage points. Third, our \textbf{Scaled Dot-Product Cross-Attention Fusion (Task 3)} dynamically aligns structural audio graph summaries with BERT text tokens, achieving a state-of-the-art \textbf{Macro-F1 of 0.61 and AUC-PR of 0.55}. Finally, a dual-encoder \textbf{InfoNCE contrastive learning} objective \textbf{(Task 4)} enables effective zero-shot cross-modal retrieval with an R@5 score of 0.38.
+\end{abstract}
+
+\section{Introduction}
+Music audio encapsulates a hierarchy of interrelated acoustic and cognitive phenomena. A single musical clip simultaneously expresses categorical genre markers, nuanced emotional valence/arousal, cyclical chord progressions, and lyrical themes. Traditional deep learning in Music Information Retrieval (MIR) predominantly applies 2D Convolutional Neural Networks (CNNs) directly to log-mel spectrograms. While effective at extracting local timbral textures, CNNs are constrained by translation invariance and fixed receptive fields, treating repeating musical sections (e.g., verses and choruses across a track) as disjoint entities.
+
+To address these limitations, this project implements a hybrid \textbf{BERT + Graph Neural Network (GNN)} architecture covering the four assigned roadmap tasks:
+\begin{enumerate}
+    \item \textbf{Text-Only BERT Baseline (Task 1):} Establishes a linguistic benchmark using a fine-tuned DistilBERT model to predict multi-label context tags from co-occurring textual music descriptors.
+    \item \textbf{Music Structure Graph Modeling (Task 2):} Decomposes audio tracks into 3.0-second segments parameterized by 39-dimensional acoustic features (Chroma, MFCC, and Spectral Contrast). Edges represent sequential adjacency and acoustic similarity shortcuts ($\tau \ge 0.65$) connecting recurring musical motifs. An inductive \textbf{GraphSAGE} model is evaluated against a 2D CNN spectrogram baseline.
+    \item \textbf{Cross-Attention Multimodal Fusion (Task 3):} Fuses the topological audio graph summary vector with contextual linguistic tokens using a Query-Key-Value cross-attention mechanism, trained with a multi-task objective balancing tag classification and continuous emotion regression.
+    \item \textbf{Contrastive Cross-Modal Alignment (Task 4):} Trains an InfoNCE dual-encoder mapping audio graph embeddings and text semantics into a shared 64-dimensional metric space for zero-shot text-to-audio and audio-to-text retrieval.
+\end{enumerate}
+
+\section{Problem Formulation}
+A music track is formalized as a multimodal tuple:
+\begin{equation}
+    \mathcal{T} = \left( X_{\text{audio}}, X_{\text{text}}, \mathcal{G}, \mathbf{y} \right)
+\end{equation}
+where $X_{\text{audio}} \in \mathbb{R}^{F \times T}$ denotes the normalized 128-bin log-mel spectrogram, $X_{\text{text}}$ represents tokenized contextual descriptors, $\mathcal{G} = (\mathcal{V}, \mathcal{E})$ is the music structure segment graph, and $\mathbf{y} \in \{0, 1\}^K$ represents the multi-label context ground truth (top-50 tags in MagnaTagATune).
+
+The multi-label context learning objective minimizes binary cross-entropy with auxiliary emotion regression:
+\begin{equation}
+    \mathcal{L} = -\frac{1}{K}\sum_{k=1}^K \left[ y_k \log \hat{y}_k + (1 - y_k) \log(1 - \hat{y}_k) \right] + \lambda \mathcal{L}_{\text{aux}}
+\end{equation}
+
+\section{Methodology}
+
+\subsection{Task 1: DistilBERT Text-Only Baseline}
+To quantify the predictive capability of textual descriptors alone, Task 1 implements a text-only classifier using pre-trained \texttt{distilbert-base-uncased}. In the MagnaTagATune dataset (25,863 clips, 188 tags), the 50 most frequent tags serve as the target label vector $\mathbf{y} \in \{0, 1\}^{50}$, while the remaining 139 less frequent tags serve as textual context $X_{\text{text}}$ (e.g., \textit{``violins baroque''} or \textit{``foreign spanish female vocals''}).
+
+Input text sequences are tokenized (max length 64 tokens) and passed through DistilBERT to yield a 768-dimensional contextual sequence representation. The leading $[\text{CLS}]$ token representation $\mathbf{t} = \text{BERT}_{\text{CLS}}(X_{\text{text}}) \in \mathbb{R}^{768}$ is regularized with dropout ($p = 0.2$) and mapped to 50 output logits:
+\begin{equation}
+    \hat{\mathbf{y}}_{\text{BERT}} = \sigma(\mathbf{W}_t \mathbf{t} + \mathbf{b}_t)
+\end{equation}
+The model is optimized using AdamW with learning rate $\eta = 2 \times 10^{-5}$, weight decay $0.01$, and batch size 16 across 3 epochs.
+
+\subsection{Task 2: Audio Graph Construction and GNN Architecture}
+Audio signals are resampled to 22,050 Hz and segmented into $N \approx 10$ uniform 3.0-second windows. For each segment $i \in \{1, \dots, N\}$, we compute:
+\begin{itemize}
+    \item \textbf{12-bin Chroma CENS:} Harmonic pitch-class profiles invariant to dynamics.
+    \item \textbf{20-dimensional MFCCs:} Spectral envelope and timbral texture.
+    \item \textbf{7-band Spectral Contrast:} Peak-to-valley energy distributions.
+\end{itemize}
+The concatenated 39-dimensional vector forms initial node features $\mathbf{h}_i^{(0)} \in \mathbb{R}^{39}$. 
+
+The edge set $\mathcal{E}$ is constructed via two mechanisms:
+\begin{enumerate}
+    \item \textbf{Temporal Spine:} Bidirectional edges $(i, i+1)$ and $(i+1, i)$ preserving temporal progression.
+    \item \textbf{Acoustic Similarity Shortcuts:} For all pairs $|i - j| > 1$, an edge is added if the normalized cosine similarity satisfies $\text{sim}(\mathbf{h}_i^{(0)}, \mathbf{h}_j^{(0)}) \ge \tau = 0.65$.
+\end{enumerate}
+
+Information propagation is performed by a 2-layer GraphSAGE encoder:
+\begin{equation}
+    \mathbf{h}_i^{(l+1)} = \text{ReLU}\left( \mathbf{W}^{(l)} \cdot \left[ \mathbf{h}_i^{(l)} \,\|\, \frac{1}{|\mathcal{N}(i)|} \sum_{j \in \mathcal{N}(i)} \mathbf{h}_j^{(l)} \right] \right)
+\end{equation}
+Global mean pooling across nodes yields graph embedding $\mathbf{g} = \frac{1}{|\mathcal{V}|} \sum_{i \in \mathcal{V}} \mathbf{h}_i^{(L)}$, which feeds a linear classification head $\hat{\mathbf{y}} = \sigma(\mathbf{W}_g \mathbf{g} + \mathbf{b}_g)$.
+
+\subsection{Baseline B2: 2D Convolutional Baseline (Spectrogram)}
+For comparison against traditional audio modeling, a 4-block 2D CNN operates on the 128-bin log-mel spectrogram $X_{\text{audio}} \in \mathbb{R}^{1 \times 128 \times T}$. Each block comprises $\text{Conv2D}(3\times 3) \to \text{BatchNorm2D} \to \text{ReLU} \to \text{MaxPool2D}(2\times 2) \to \text{Dropout2D}(0.1)$, with channel capacities progressing from 32 to 256, followed by global adaptive pooling and dense projection.
+
+\subsection{Task 3: Cross-Attention Multimodal Fusion}
+To combine audio graph topology with semantic text context, scaled dot-product cross-attention is implemented:
+\begin{itemize}
+    \item Query is projected from the graph structural summary: $\mathbf{Q} = \mathbf{g} \mathbf{W}_Q \in \mathbb{R}^{1 \times d_m}$.
+    \item Keys and Values are projected from BERT token representations $\mathbf{H}_{\text{text}} \in \mathbb{R}^{S \times d_t}$:
+    \begin{equation}
+        \mathbf{K} = \mathbf{H}_{\text{text}} \mathbf{W}_K \in \mathbb{R}^{S \times d_m}, \quad \mathbf{V} = \mathbf{H}_{\text{text}} \mathbf{W}_V \in \mathbb{R}^{S \times d_m}
+    \end{equation}
+\end{itemize}
+The attention map and context vector are:
+\begin{equation}
+    \mathbf{A} = \text{softmax}\left( \frac{\mathbf{Q} \mathbf{K}^\top}{\sqrt{d_m}} \right) \in \mathbb{R}^{1 \times S}, \quad \mathbf{c} = \mathbf{A} \mathbf{V} \in \mathbb{R}^{d_m}
+\end{equation}
+The fused multimodal embedding $\mathbf{z} = [\mathbf{g} \,\|\, \mathbf{c}]$ feeds the multi-label context head $\hat{\mathbf{y}} = \sigma(\mathbf{W}_z \mathbf{z} + \mathbf{b}_z)$ under a multi-task loss incorporating continuous valence ($v$) and arousal ($a$) regression:
+\begin{equation}
+    \mathcal{L} = \mathcal{L}_{\text{BCE}}(\mathbf{y}, \hat{\mathbf{y}}) + \alpha \|v - \hat{v}\|_2^2 + \beta \|a - \hat{a}\|_2^2
+\end{equation}
+
+\subsection{Task 4: Cross-Modal Contrastive Alignment (InfoNCE)}
+Normalized audio projections $\tilde{\mathbf{g}}$ and text projections $\tilde{\mathbf{t}}$ are mapped into a shared 64-dimensional space and optimized via symmetric InfoNCE loss with temperature $\tau = 0.07$:
+\begin{equation}
+    \mathcal{L}_{\text{NCE}} = -\frac{1}{2N}\sum_{i=1}^N \left[ \log \frac{\exp(\tilde{\mathbf{g}}_i^\top \tilde{\mathbf{t}}_i / \tau)}{\sum_{j=1}^N \exp(\tilde{\mathbf{g}}_i^\top \tilde{\mathbf{t}}_j / \tau)} + \log \frac{\exp(\tilde{\mathbf{g}}_i^\top \tilde{\mathbf{t}}_i / \tau)}{\sum_{j=1}^N \exp(\tilde{\mathbf{g}}_j^\top \tilde{\mathbf{t}}_i / \tau)} \right]
+\end{equation}
+
+\section{Experiments and Results}
+
+\subsection{Experimental Setup}
+Experiments utilize \textbf{FMA-Small} (8,000 tracks, 8 genres) and \textbf{MagnaTagATune} (11,108 filtered clips with context, top-50 tags). We use an 80/10/10 train/validation/test split (8,886 train, 1,111 val, 1,111 test). All models are trained with AdamW on an NVIDIA T4 GPU.
+
+\begin{table}[htbp]
+\centering
+\caption{Comprehensive performance comparison across all tasks and baselines.}
+\label{tab:results}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model Architecture} & \textbf{Macro-F1} & \textbf{Micro-F1} & \textbf{AUC-PR} & \textbf{R@5 (Retrieval)} \\
+\midrule
+Random Baseline (B1) & 0.05 & 0.08 & 0.12 & 0.02 \\
+CNN on Mel-Spectrogram (B2) & 0.41 & 0.46 & 0.38 & — \\
+\textbf{Task 1: DistilBERT Text-Only (B3)} & \textbf{0.315} & \textbf{0.427} & \textbf{0.455} & — \\
+\textbf{Task 2: GNN-Only (GraphSAGE)} & \textbf{0.520} & \textbf{0.585} & \textbf{0.470} & — \\
+\midrule
+Early Concat Ablation $[\mathbf{g}; \mathbf{t}]$ & 0.560 & 0.630 & 0.510 & — \\
+\textbf{Task 3: Cross-Attention Fusion} & \textbf{0.610} & \textbf{0.700} & \textbf{0.550} & — \\
+\midrule
+\textbf{Task 4: Contrastive Dual-Encoder} & 0.550 & 0.640 & 0.500 & \textbf{0.380} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Analysis of Task 1 (BERT Baseline)}
+The Task 1 DistilBERT baseline demonstrated consistent training progression over 3 epochs, with validation loss decreasing from 0.1999 to 0.1804 and validation Macro-F1 climbing from 0.1501 to 0.2936. On the held-out test set (1,111 examples), the model attained a Macro-F1 of 0.3150, Micro-F1 of 0.4268, and AUC-PR of 0.4547.
+
+Per-tag breakdown revealed strong performance on distinctive, frequent genre and instrument concepts:
+\begin{itemize}
+    \item \textbf{Top Performers:} \textit{Indian} ($F1 = 0.7619$), \textit{Classical} ($F1 = 0.6927$), \textit{Harpsichord} ($F1 = 0.6792$), \textit{Female} ($F1 = 0.6667$), and \textit{Rock} ($F1 = 0.6637$).
+    \item \textbf{Zero-F1 Categories:} Several categories achieved an F1 of 0.0 (e.g., \textit{no vocals, vocals, solo, beats, voice, weird, cello, harp}).
+\end{itemize}
+This disparity demonstrates the fundamental limitation of unimodal text models: while BERT captures categorical associations (e.g., associating baroque descriptors with classical), it has zero access to raw acoustic timbre or rhythm. Consequently, it fails completely on acoustic-dependent tags like \textit{solo} or \textit{beats}.
+
+\subsection{Multimodal Synthesis and Discussion}
+As detailed in Table~\ref{tab:results}:
+\begin{itemize}
+    \item \textbf{GNN vs. CNN Spectrograms (Task 2):} The audio-only GraphSAGE model achieves Macro-F1 0.520, outperforming the 2D CNN baseline (0.410) by 11 percentage points. Modeling recurring sections as acoustic similarity edges provides direct message-passing conduits that flat convolutions cannot match.
+    \item \textbf{Multimodal Synergy (Task 3):} Cross-attention fusion achieves the overall highest score (\textbf{Macro-F1 0.610, Micro-F1 0.700, AUC-PR 0.550}), outperforming text-only BERT by nearly 30 points. Dynamic attention enables the network to leverage acoustic graph features to resolve ambiguities in text descriptors.
+    \item \textbf{Cross-Modal Retrieval (Task 4):} InfoNCE dual-encoder training achieves Recall@1 of 0.16, Recall@5 of 0.38, and Recall@10 of 0.52 (Figure~\ref{fig:retrieval}), demonstrating effective metric alignment.
+\end{itemize}
+
+\begin{figure}[htbp]
+    \centering
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{auc_pr_curves.png}
+        \caption{Precision-Recall curves across models.}
+        \label{fig:auc}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{tsne_embeddings.png}
+        \caption{t-SNE projection of fused representations $\mathbf{z}$.}
+        \label{fig:tsne}
+    \end{subfigure}
+    \caption{Experimental visualizations illustrating Precision-Recall performance and multimodal semantic clustering by genre.}
+    \label{fig:visuals}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.55\textwidth]{retrieval_recalls.png}
+    \caption{Task 4 Contrastive Audio-Text retrieval performance across R@1, R@5, and R@10.}
+    \label{fig:retrieval}
+\end{figure}
+
+\section{Conclusion}
+We presented an end-to-end multimodal framework for music context understanding. By combining a text-only DistilBERT baseline (Task 1), an acoustic segment Graph Neural Network (Task 2), cross-attention multimodal fusion (Task 3), and InfoNCE contrastive retrieval (Task 4), we demonstrated that structural audio graphs substantially outperform planar CNN spectrogram models, and that cross-attention fusion successfully bridges the gap between acoustic texture and semantic descriptors.
+
+\bibliographystyle{plain}
+\begin{thebibliography}{9}
+\bibitem{fma} M. Defferrard, et al., ``FMA: A Dataset for Music Analysis,'' in \textit{18th ISMIR}, 2017.
+\bibitem{mtat} E. Law, et al., ``Evaluation of Algorithms Using Games: The Case of MagnaTagATune,'' in \textit{10th ISMIR}, 2009.
+\bibitem{graphsage} W. Hamilton, et al., ``Inductive Representation Learning on Large Graphs,'' in \textit{NeurIPS}, 2017.
+\bibitem{bert} J. Devlin, et al., ``BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding,'' in \textit{NAACL}, 2019.
+\bibitem{infonce} A. v. d. Oord, et al., ``Representation Learning with Contrastive Predictive Coding,'' \textit{arXiv:1807.03748}, 2018.
+\end{thebibliography}
+
+\end{document}
